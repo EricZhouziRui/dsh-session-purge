@@ -1,6 +1,6 @@
 {
   "name": "@local/session-purge",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "自动挂接其他会话管理插件的永久删除并清理磁盘残留 · Permanent session purge with automatic cleanup hook",
   "license": "MIT",

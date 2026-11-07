@@ -157,7 +157,22 @@ node --test test/*.test.mjs
 node --check engine.js index.js client.js update.js
 ```
 
-测试覆盖引擎扫描/删除、符号链接与路径穿越、工作区记账、archive-manager 索引清理、运行中会话、自动挂接、客户端冷启动 slot 注册、一键删除空白会话、滚动位置保持、自更新和安装器行为。
+测试覆盖引擎扫描/删除、符号链接与路径穿越、工作区记账、archive-manager 索引清理、运行中会话、自动挂接、客户端冷启动 slot 注册、一键删除空白会话、滚动位置保持、自更新和安装器行为。CI 还会重新生成 `update-manifest.json` 并检查是否有 diff，防止发布旧清单。
+
+### 发布新版本
+
+1. 修改 `package.json` 里的 `version`，在 README 功能表里补充变更（可选）。
+2. 运行 `npm run manifest` 重新生成 `update-manifest.json`（脚本对文本按 LF 规范化后再计算哈希，Windows 的 CRLF 检出也能得到和 GitHub 一致的结果）。
+3. 提交并推送 `main`，再打同名 tag（例如 `v0.1.3`）并推送 tag。
+4. 从 tag 生成 Release 资源：
+
+```bash
+git archive --format=zip --prefix=dsh-session-purge/ -o dsh-session-purge-<version>.zip v<version>
+sha256sum dsh-session-purge-<version>.zip > SHA256SUMS-<version>.txt
+gh release create v<version> dsh-session-purge-<version>.zip SHA256SUMS-<version>.txt --title v<version> --notes-file NOTES.md
+```
+
+> **注意**：`0.1.2` 及更早的已安装版本只按 Release 的 tag 版本号判断更新（没有内容漂移检测）。所以「原地修复发布内容」老用户看不到，必须提升版本号再发 Release，老用户才能在设置页里一键更新。
 
 目录：
 

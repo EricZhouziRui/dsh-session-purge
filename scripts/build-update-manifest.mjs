@@ -29,7 +29,11 @@ const manifest = {
 
 for (const relative of files) {
   const bytes = await readFile(join(root, relative))
-  manifest.files[relative] = createHash('sha256').update(bytes).digest('hex')
+  // GitHub serves the committed (LF) bytes, while Windows checkouts with
+  // core.autocrlf=true contain CRLF. Hash the canonical text so `npm run
+  // manifest` produces the same hashes as the files the updater downloads.
+  const canonical = Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8')
+  manifest.files[relative] = createHash('sha256').update(canonical).digest('hex')
 }
 
 await writeFile(join(root, 'update-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)

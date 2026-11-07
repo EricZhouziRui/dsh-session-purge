@@ -40,7 +40,18 @@ DSH 自带删除、以及一些会话管理插件（例如 archive-manager）的
 - Node.js 18+（DSH Desktop 自带 Node 也可以）
 - 至少启动过一次 DSH，让 `~/.dsh`（Windows 为 `%USERPROFILE%\.dsh`）和 profile 生成
 
-### 方式 A：一键安装（推荐）
+### 方式 A：下载 Release（最省事）
+
+从 [Releases](https://github.com/EricZhouziRui/dsh-session-purge/releases) 下载最新的 `dsh-session-purge-<version>.zip`，解压后进入目录：
+
+```bash
+node install.mjs --dry-run
+node install.mjs
+```
+
+适合只想安装、不打算改代码的情况。
+
+### 方式 B：从源码安装（推荐给开发者）
 
 ```bash
 git clone https://github.com/EricZhouziRui/dsh-session-purge.git
@@ -72,7 +83,7 @@ node install.mjs --link                   # 开发模式：不复制，直接链
 
 `--link` 适合改代码后重启 DSH 立即生效；普通用户用默认复制模式即可。
 
-### 方式 B：手动安装
+### 方式 C：手动安装
 
 如果不想运行脚本：
 

@@ -17,7 +17,18 @@ ls ~/.dsh/profiles
 # 常见为 desktop / web
 ```
 
-## 1. 一键安装
+## 1. 安装
+
+### 1.1 下载 Release（普通用户）
+
+从 <https://github.com/EricZhouziRui/dsh-session-purge/releases> 下载最新 zip，解压后进入目录：
+
+```bash
+node install.mjs --dry-run
+node install.mjs
+```
+
+### 1.2 从源码安装（开发者）
 
 ```bash
 git clone https://github.com/EricZhouziRui/dsh-session-purge.git

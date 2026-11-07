@@ -105,6 +105,8 @@ async function getRaw(url, fetchImpl) {
  * @param {object} options
  * @param {string} options.currentVersion - installed version.
  * @param {string} [options.repo] - `owner/name`.
+ * @param {string} [options.pluginDir] - installed plugin directory; enables
+ *   same-version content-drift detection against the release manifest.
  * @param {typeof fetch} [options.fetchImpl] - injected for tests.
  * @returns {Promise<object>} check result.
  */
@@ -112,6 +114,7 @@ export async function checkForUpdate(options) {
   const currentVersion = stripVersion(options.currentVersion)
   const repo = options.repo ?? DEFAULT_REPO
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const pluginDir = typeof options.pluginDir === 'string' ? options.pluginDir : undefined
   if (typeof fetchImpl !== 'function') return { ok: false, error: '当前运行环境不支持网络请求' }
   try {
     const release = await getJson(
@@ -122,11 +125,20 @@ export async function checkForUpdate(options) {
     const tag = typeof release?.tag_name === 'string' ? release.tag_name : ''
     const latestVersion = stripVersion(tag)
     if (latestVersion.length === 0) return { ok: false, error: 'GitHub Release 没有 tag' }
+    const newer = compareVersions(latestVersion, currentVersion) > 0
+    // Same version number but different released content: the release was
+    // repaired in place (same tag, fixed files). Offer reinstalling so users of
+    // the buggy build can still update from the settings page.
+    let contentDrift = false
+    if (!newer && pluginDir !== undefined) {
+      contentDrift = await detectContentDrift(pluginDir, repo, tag, fetchImpl)
+    }
     return {
       ok: true,
       currentVersion,
       latestVersion,
-      updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
+      updateAvailable: newer || contentDrift,
+      contentDrift: newer ? false : contentDrift,
       tag,
       releaseUrl: typeof release.html_url === 'string' ? release.html_url : undefined,
       publishedAt: typeof release.published_at === 'string' ? release.published_at : undefined,
@@ -134,6 +146,50 @@ export async function checkForUpdate(options) {
     }
   } catch (error) {
     return { ok: false, error: errorMessage(error) }
+  }
+}
+
+/**
+ * Compare the installed files against the release manifest. A mismatch means
+ * the release content changed without a version bump.
+ *
+ * @param {string} pluginDir - installed plugin directory.
+ * @param {string} repo - `owner/name`.
+ * @param {string} tag - release tag to read the manifest from.
+ * @param {typeof fetch} fetchImpl - fetch implementation.
+ * @returns {Promise<boolean>} true when released content differs locally.
+ */
+async function detectContentDrift(pluginDir, repo, tag, fetchImpl) {
+  try {
+    const response = await fetchImpl(
+      `https://raw.githubusercontent.com/${repo}/${encodePath(tag)}/${MANIFEST_NAME}`,
+      { headers: { 'user-agent': 'dsh-session-purge-updater' } },
+    )
+    if (!response.ok) return false
+    const manifest = await readJson(response, '更新清单')
+    if (manifest?.name !== '@local/session-purge') return false
+    if (manifest?.files === null || typeof manifest.files !== 'object') return false
+    for (const [rawPath, expected] of Object.entries(manifest.files)) {
+      if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/i.test(expected)) continue
+      let relative
+      try {
+        relative = safeRelativePath(rawPath)
+      } catch {
+        return false
+      }
+      let bytes
+      try {
+        bytes = await readFile(join(pluginDir, relative))
+      } catch {
+        // A released file missing locally is drift too.
+        return true
+      }
+      if (digest(bytes) !== expected.toLowerCase()) return true
+    }
+    return false
+  } catch {
+    // Network hiccups while probing must not fail the whole check.
+    return false
   }
 }
 
@@ -172,7 +228,7 @@ export async function applyUpdate(options) {
     return { ok: false, error: `读取当前插件失败：${errorMessage(error)}` }
   }
 
-  const check = await checkForUpdate({ currentVersion: options.currentVersion, repo, fetchImpl })
+  const check = await checkForUpdate({ currentVersion: options.currentVersion, repo, fetchImpl, pluginDir: target })
   if (check.ok !== true) return check
   if (check.updateAvailable !== true) {
     return { ok: true, updated: false, currentVersion: check.currentVersion, latestVersion: check.latestVersion }

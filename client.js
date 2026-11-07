@@ -37,9 +37,11 @@ window.__ModuleLoader__.load({
       checkUpdate: '检查更新',
       checkingUpdate: '正在检查…',
       updateAvailable: '更新到 v{version}',
+      updateRepair: '修复安装 v{version}',
       updateLatest: '已是最新版本',
       updating: '正在更新…',
       updateConfirm: '将把插件更新到 v{version}。更新会替换当前安装副本，完成后再完全退出并重新打开 DSH 才生效。继续？',
+      updateRepairConfirm: '发布内容已修复（版本号不变），将重新下载并替换当前安装副本，完成后再完全退出并重新打开 DSH 才生效。继续？',
       updateDone: '已更新到 v{version}，请完全退出并重新打开 DSH。',
       updateFailed: '更新失败：{error}',
       loading: '正在扫描会话…',
@@ -118,9 +120,11 @@ window.__ModuleLoader__.load({
       checkUpdate: 'Check for updates',
       checkingUpdate: 'Checking…',
       updateAvailable: 'Update to v{version}',
+      updateRepair: 'Repair install v{version}',
       updateLatest: 'Up to date',
       updating: 'Updating…',
       updateConfirm: 'Update the plugin to v{version}? This replaces the installed copy; restart DSH after it finishes. Continue?',
+      updateRepairConfirm: 'The released content was repaired (same version). Re-download and replace the installed copy, then quit and reopen DSH. Continue?',
       updateDone: 'Updated to v{version}. Quit and reopen DSH to finish.',
       updateFailed: 'Update failed: {error}',
       loading: 'Scanning sessions…',
@@ -446,7 +450,11 @@ window.__ModuleLoader__.load({
         let confirmed = true
         try {
           if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-            confirmed = window.confirm(t('updateConfirm', { version }))
+            confirmed = window.confirm(
+              updateInfo?.contentDrift === true
+                ? t('updateRepairConfirm')
+                : t('updateConfirm', { version }),
+            )
           }
         } catch {
           confirmed = true
@@ -794,7 +802,9 @@ window.__ModuleLoader__.load({
             : updateChecking
               ? t('checkingUpdate')
               : updateInfo?.updateAvailable === true
-                ? t('updateAvailable', { version: updateInfo.latestVersion ?? '' })
+                ? updateInfo.contentDrift === true
+                  ? t('updateRepair', { version: updateInfo.latestVersion ?? '' })
+                  : t('updateAvailable', { version: updateInfo.latestVersion ?? '' })
                 : t('checkUpdate')),
         ),
 

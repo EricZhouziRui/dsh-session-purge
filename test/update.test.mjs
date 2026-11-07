@@ -77,6 +77,61 @@ test('checkForUpdate reports no update on the same version', async () => {
   assert.equal(result.updateAvailable, false)
 })
 
+test('checkForUpdate offers a same-version repair when released content drifted', async () => {
+  const { root, pluginDir } = await makePlugin()
+  const files = { 'engine.js': 'export const version = "new"\n' }
+  const manifest = {
+    name: '@local/session-purge',
+    version: '0.1.3',
+    files: { 'engine.js': sha(files['engine.js']) },
+  }
+  const { fetch } = makeFetch({ manifest, files })
+  const result = await checkForUpdate({ currentVersion: '0.1.3', pluginDir, repo: REPO, fetchImpl: fetch })
+  assert.equal(result.ok, true)
+  assert.equal(result.latestVersion, '0.1.3')
+  assert.equal(result.updateAvailable, true)
+  assert.equal(result.contentDrift, true)
+  await rm(root, { recursive: true, force: true })
+})
+
+test('checkForUpdate reports nothing when same-version content matches', async () => {
+  const { root, pluginDir } = await makePlugin()
+  const files = { 'engine.js': 'export const version = "old"\n' }
+  const manifest = {
+    name: '@local/session-purge',
+    version: '0.1.3',
+    files: { 'engine.js': sha(files['engine.js']) },
+  }
+  const { fetch } = makeFetch({ manifest, files })
+  const result = await checkForUpdate({ currentVersion: '0.1.3', pluginDir, repo: REPO, fetchImpl: fetch })
+  assert.equal(result.ok, true)
+  assert.equal(result.updateAvailable, false)
+  assert.equal(result.contentDrift, false)
+  await rm(root, { recursive: true, force: true })
+})
+
+test('applyUpdate repairs a same-version install in place', async () => {
+  const { root, pluginDir } = await makePlugin()
+  const files = {
+    'package.json': JSON.stringify({ name: '@local/session-purge', version: '0.1.3', type: 'module' }, null, 2),
+    'engine.js': 'export const version = "new"\n',
+    'locale/zh.json': '{"updated":true}\n',
+    'update.js': '// updater\n',
+  }
+  const manifest = {
+    name: '@local/session-purge',
+    version: '0.1.3',
+    files: Object.fromEntries(Object.entries(files).map(([path, body]) => [path, sha(body)])),
+  }
+  const { fetch } = makeFetch({ manifest, files })
+  const result = await applyUpdate({ pluginDir, currentVersion: '0.1.3', repo: REPO, fetchImpl: fetch })
+  assert.equal(result.ok, true)
+  assert.equal(result.updated, true)
+  assert.equal(await readFile(join(pluginDir, 'engine.js'), 'utf8'), 'export const version = "new"\n')
+  assert.ok((await stat(result.backupPath)).isDirectory())
+  await rm(root, { recursive: true, force: true })
+})
+
 test('applyUpdate verifies hashes, replaces files, and keeps a backup', async () => {
   const { root, pluginDir } = await makePlugin()
   const files = {

@@ -337,3 +337,62 @@ test('update button downloads and applies the latest release', async () => {
   assert.equal(updatePosted, true)
   assert.ok(textOf(hooks.getTree()).includes('已更新到 v0.1.3'))
 })
+
+test('same-version content drift shows 修复安装 button and repair confirmation', async () => {
+  const slots = createSlots()
+  const hooks = createHookRuntime()
+  let definition
+  let updatePosted = false
+  let confirmMessage = ''
+
+  const fetch = async (url, init) => {
+    if (String(url).endsWith('/update')) {
+      if (init?.method === 'POST') {
+        updatePosted = true
+        return { ok: true, json: async () => ({ ok: true, updated: true, latestVersion: '0.1.2', restartRequired: true }) }
+      }
+      return { ok: true, json: async () => ({ ok: true, currentVersion: '0.1.2', latestVersion: '0.1.2', updateAvailable: true, contentDrift: true }) }
+    }
+    return { ok: true, json: async () => fixture() }
+  }
+
+  const sandbox = {
+    window: {
+      __ModuleLoader__: { load: (value) => { definition = value } },
+      scrollY: 0,
+      scrollTo: () => {},
+      confirm: (message) => { confirmMessage = message; return true },
+    },
+    console: { warn() {} },
+    require: (name) => (name === 'react' ? hooks.React : undefined),
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+    fetch,
+    navigator: { clipboard: { writeText() {} } },
+    document: undefined,
+    queueMicrotask,
+  }
+  vm.runInNewContext(source, sandbox, { filename: 'client.js' })
+  const module = definition.factory(sandbox.require)
+  const ctx = {
+    locale: { register() {}, subscribe: () => () => {} },
+    inject: (_deps, callback) => { callback({ sessions: null }) },
+    slots,
+    effect: (fn) => { fn() },
+  }
+  module.apply(ctx)
+  slots.declare('settings.section')
+  hooks.setComponent(slots.registered[0].component)
+  hooks.render()
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+
+  const repairButton = findButtons(hooks.getTree(), '修复安装 v0.1.2')[0]
+  assert.ok(repairButton, 'repair button should be visible on content drift')
+  repairButton.props.onClick()
+  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.match(confirmMessage, /发布内容已修复（版本号不变）/, 'confirmation should use the repair wording')
+  assert.equal(updatePosted, true)
+  assert.ok(textOf(hooks.getTree()).includes('已更新到 v0.1.2'))
+})

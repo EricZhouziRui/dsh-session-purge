@@ -570,7 +570,7 @@ export function apply(ctx, _config) {
     }
     try {
       const result = request.method === 'GET'
-        ? await checkForUpdate({ currentVersion: PLUGIN_VERSION, repo: DEFAULT_REPO })
+        ? await checkForUpdate({ currentVersion: PLUGIN_VERSION, repo: DEFAULT_REPO, pluginDir: PLUGIN_DIR })
         : await applyUpdate({ pluginDir: PLUGIN_DIR, currentVersion: PLUGIN_VERSION, repo: DEFAULT_REPO })
       sendJson(response, 200, result)
     } catch (error) {

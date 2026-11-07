@@ -725,6 +725,7 @@ export function createEngine(options) {
         // internals, not conversations the user can manage. Keep the flag so the
         // UI/tool list can hide them; purge() can still delete one by explicit id.
         subagent: header?.origin === 'subagent' || typeof header?.parentSession === 'string',
+        parentSession: typeof header?.parentSession === 'string' ? header.parentSession : undefined,
         createdAt,
         live: live.has(id),
         tracked: snapshot !== undefined,
@@ -771,9 +772,36 @@ export function createEngine(options) {
     }
 
     const now = Date.now()
+    // A subagent is tracked by the persistence service, but it is only a
+    // delegation child of another transcript. When that parent (or a whole
+    // ancestor chain) is already gone, the child is a real orphan that cleanup
+    // must be able to see even though the normal list hides it.
+    const knownSessionIds = new Set([
+      ...tracked.entries.keys(),
+      ...disk.byId.keys(),
+      ...caches.keys(),
+      ...live,
+    ])
+    const sessionById = new Map(sessions.map((session) => [session.id, session]))
+    function hasMissingAncestor(id, seen = new Set()) {
+      const session = sessionById.get(id)
+      const parent = session?.parentSession
+      if (typeof parent !== 'string' || parent.length === 0) return false
+      if (!knownSessionIds.has(parent)) return true
+      if (seen.has(parent)) return false
+      seen.add(parent)
+      const parentSession = sessionById.get(parent)
+      if (parentSession?.subagent !== true) return false
+      return hasMissingAncestor(parent, seen)
+    }
+    function isOrphanCandidate(session) {
+      if (session.live || session.dirPaths.length === 0) return false
+      if (session.orphan) return true
+      return session.subagent === true && hasMissingAncestor(session.id)
+    }
     const orphanSessionIds = orphanSafe
       ? sessions
-        .filter((session) => session.orphan && !session.live && session.dirPaths.length > 0)
+        .filter(isOrphanCandidate)
         .filter((session) => session.mtimeMs === 0 || now - session.mtimeMs >= MIN_ORPHAN_AGE_MS)
         .map((session) => session.id)
       : []
@@ -985,11 +1013,27 @@ export function createEngine(options) {
       if (!Array.isArray(ids) || ids.length === 0) throw new Error('没有指定要删除的会话')
       const analysis = await analyze()
       const results = []
-      for (const id of ids) {
+      const queue = ids.map((id) => String(id))
+      const seen = new Set()
+      while (queue.length > 0) {
+        const id = queue.shift()
+        if (seen.has(id)) continue
+        seen.add(id)
+        let result
         try {
-          results.push(await purgeFromAnalysis(String(id), analysis, options))
+          result = await purgeFromAnalysis(id, analysis, options)
         } catch (error) {
-          results.push({ sessionId: String(id), status: 'failed', error: errorMessage(error) })
+          result = { sessionId: id, status: 'failed', error: errorMessage(error) }
+        }
+        results.push(result)
+        if (result.status !== 'deleted') continue
+        // Parent deletion invalidates its hidden delegation children. Removing
+        // their transcripts now avoids leaving multi-megabyte subagent orphans;
+        // a still-running child is left for the next cleanup once it stops.
+        for (const child of analysis.sessions) {
+          if (child.subagent === true && child.parentSession === id && child.live !== true && !seen.has(child.id)) {
+            queue.push(child.id)
+          }
         }
       }
       return {

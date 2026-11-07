@@ -13,7 +13,6 @@ const files = [
   'client.js',
   'update.js',
   'cordis.patch.yml',
-  'install.mjs',
   'README.md',
   'INSTALL.md',
   'LICENSE',

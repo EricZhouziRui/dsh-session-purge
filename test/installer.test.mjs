@@ -8,6 +8,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const installer = fileURLToPath(new URL('../install.mjs', import.meta.url))
+const installerOptions = existsSync(installer)
+  ? {}
+  : { skip: 'install.mjs 不在当前副本中（安装副本不包含安装器），跳过' }
 
 async function makeHome() {
   const home = await mkdtemp(join(tmpdir(), 'dshsp-install-'))
@@ -28,7 +31,7 @@ function install(home, args = []) {
   })
 }
 
-test('installer dry-run leaves the profile untouched', async () => {
+test('installer dry-run leaves the profile untouched', installerOptions, async () => {
   const { home, profileDir } = await makeHome()
   const profileFile = join(profileDir, 'package.json')
   const before = await readFile(profileFile, 'utf8')
@@ -40,7 +43,7 @@ test('installer dry-run leaves the profile untouched', async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-test('installer copies the bundle, updates dependencies and bundles, then is idempotent', async () => {
+test('installer copies the bundle, updates dependencies and bundles, then is idempotent', installerOptions, async () => {
   const { home, profileDir } = await makeHome()
   const first = install(home)
   assert.equal(first.status, 0, first.stderr)
@@ -64,7 +67,7 @@ test('installer copies the bundle, updates dependencies and bundles, then is ide
   await rm(home, { recursive: true, force: true })
 })
 
-test('installer --link keeps the checkout as the source', async () => {
+test('installer --link keeps the checkout as the source', installerOptions, async () => {
   const { home, profileDir } = await makeHome()
   const result = install(home, ['--link'])
   assert.equal(result.status, 0, result.stderr)
@@ -77,7 +80,7 @@ test('installer --link keeps the checkout as the source', async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-test('installer rejects missing flag values, unknown profiles and bad homes', async () => {
+test('installer rejects missing flag values, unknown profiles and bad homes', installerOptions, async () => {
   const { home } = await makeHome()
   for (const args of [
     [installer, '--home'],

@@ -510,6 +510,7 @@ export function apply(ctx, _config) {
       const report = await makeEngine(undefined).list()
       sendJson(response, 200, {
         ...report,
+        pluginVersion: PLUGIN_VERSION,
         auto: {
           enabled: true,
           eventListener: autoState.eventListener,

@@ -36,6 +36,7 @@ window.__ModuleLoader__.load({
       blankDeleteNone: '没有可删除的空白会话。',
       checkUpdate: '检查更新',
       checkingUpdate: '正在检查…',
+      currentVersion: '当前版本 v{version}',
       updateAvailable: '更新到 v{version}',
       updateRepair: '修复安装 v{version}',
       updateLatest: '已是最新版本',
@@ -119,6 +120,7 @@ window.__ModuleLoader__.load({
       blankDeleteNone: 'There are no blank sessions to delete.',
       checkUpdate: 'Check for updates',
       checkingUpdate: 'Checking…',
+      currentVersion: 'Current version v{version}',
       updateAvailable: 'Update to v{version}',
       updateRepair: 'Repair install v{version}',
       updateLatest: 'Up to date',
@@ -790,6 +792,9 @@ window.__ModuleLoader__.load({
           : null,
 
         h('div', { className: 'dshsp_update' },
+          report?.pluginVersion !== undefined
+            ? h('span', { className: 'dshsp_currentVersion' }, t('currentVersion', { version: report.pluginVersion }))
+            : null,
           updateNotice !== null ? h('span', { className: 'dshsp_updateNotice' }, updateNotice) : null,
           updateError !== null ? h('span', { className: 'dshsp_updateError' }, updateError) : null,
           h('button', {
@@ -881,6 +886,7 @@ window.__ModuleLoader__.load({
         '.dshsp_toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}',
         '.dshsp_auto{margin:0 0 14px;padding-left:8px;border-left:2px solid var(--dsw-alias-state-success-primary);font-size:12px;color:var(--dsw-alias-label-secondary)}',
         '.dshsp_update{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
+        '.dshsp_currentVersion{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
         '.dshsp_updateNotice{color:var(--dsw-alias-state-success-primary)}',
         '.dshsp_updateError{color:var(--dsw-alias-state-error-primary)}',
         '.dshsp_updateAction{font-size:13px;font-weight:600}',

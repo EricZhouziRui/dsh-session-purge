@@ -27,11 +27,16 @@ async function makePlugin() {
   return { root, pluginDir }
 }
 
-function makeFetch({ manifest, files, mismatch } = {}) {
+function makeFetch({ manifest, files, mismatch, blockRaw } = {}) {
   const requested = []
+  const bodies = files ?? {}
   const fetch = async (url) => {
-    requested.push(String(url))
-    if (String(url).endsWith('/releases/latest')) {
+    const value = String(url)
+    requested.push(value)
+    if (blockRaw === true && value.startsWith('https://raw.githubusercontent.com/')) {
+      throw new TypeError('fetch failed')
+    }
+    if (value.endsWith('/releases/latest')) {
       return {
         ok: true,
         status: 200,
@@ -43,13 +48,20 @@ function makeFetch({ manifest, files, mismatch } = {}) {
         }),
       }
     }
-    if (String(url).endsWith(`/${TAG}/update-manifest.json`)) {
-      return { ok: true, status: 200, json: async () => manifest }
+    if (value.includes('/contents/')) {
+      const rawPath = decodeURIComponent(value.slice(value.indexOf('/contents/') + '/contents/'.length).split('?')[0])
+      const body = rawPath === 'update-manifest.json' ? JSON.stringify(manifest) : bodies[rawPath]
+      if (body === undefined) return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) }
+      return { ok: true, status: 200, arrayBuffer: async () => Buffer.from(body) }
+    }
+    if (value.endsWith(`/${TAG}/update-manifest.json`)) {
+      const text = JSON.stringify(manifest)
+      return { ok: true, status: 200, json: async () => manifest, arrayBuffer: async () => Buffer.from(text) }
     }
     const marker = `/${TAG}/`
-    const index = String(url).indexOf(marker)
-    const relative = decodeURIComponent(String(url).slice(index + marker.length))
-    const body = files[relative]
+    const index = value.indexOf(marker)
+    const relative = decodeURIComponent(value.slice(index + marker.length))
+    const body = bodies[relative]
     if (body === undefined) return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) }
     return { ok: true, status: 200, arrayBuffer: async () => Buffer.from(body) }
   }
@@ -187,5 +199,44 @@ test('applyUpdate rejects a file whose hash does not match and leaves the plugin
   assert.match(result.error, /校验失败/)
   assert.equal(JSON.parse(await readFile(join(pluginDir, 'package.json'), 'utf8')).version, '0.1.2')
   assert.equal(await readFile(join(pluginDir, 'engine.js'), 'utf8'), 'export const version = "old"\n')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('checkForUpdate falls back to the GitHub contents API when raw is blocked', async () => {
+  const { root, pluginDir } = await makePlugin()
+  const files = { 'engine.js': 'export const version = "new"\n' }
+  const manifest = {
+    name: '@local/session-purge',
+    version: '0.1.3',
+    files: { 'engine.js': sha(files['engine.js']) },
+  }
+  const { fetch, requested } = makeFetch({ manifest, files, blockRaw: true })
+  const result = await checkForUpdate({ currentVersion: '0.1.3', pluginDir, repo: REPO, fetchImpl: fetch })
+  assert.equal(result.ok, true)
+  assert.equal(result.latestVersion, '0.1.3')
+  assert.equal(result.updateAvailable, true)
+  assert.equal(result.contentDrift, true)
+  assert.ok(requested.some((url) => url.includes('/contents/update-manifest.json')))
+  await rm(root, { recursive: true, force: true })
+})
+
+test('applyUpdate falls back to the GitHub contents API when raw is blocked', async () => {
+  const { root, pluginDir } = await makePlugin()
+  const files = {
+    'package.json': JSON.stringify({ name: '@local/session-purge', version: '0.1.3', type: 'module' }, null, 2),
+    'engine.js': 'export const version = "new"\n',
+    'locale/zh.json': '{"updated":true}\n',
+  }
+  const manifest = {
+    name: '@local/session-purge',
+    version: '0.1.3',
+    files: Object.fromEntries(Object.entries(files).map(([path, body]) => [path, sha(body)])),
+  }
+  const { fetch, requested } = makeFetch({ manifest, files, blockRaw: true })
+  const result = await applyUpdate({ pluginDir, currentVersion: '0.1.2', repo: REPO, fetchImpl: fetch })
+  assert.equal(result.ok, true)
+  assert.equal(result.updated, true)
+  assert.equal(await readFile(join(pluginDir, 'engine.js'), 'utf8'), 'export const version = "new"\n')
+  assert.ok(requested.some((url) => url.includes('/contents/engine.js')))
   await rm(root, { recursive: true, force: true })
 })

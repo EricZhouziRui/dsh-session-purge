@@ -91,12 +91,41 @@ async function hasGitAncestor(directory) {
   return false
 }
 
-async function getRaw(url, fetchImpl) {
-  const response = await fetchImpl(url, {
-    headers: { 'user-agent': 'dsh-session-purge-updater' },
-  })
+const USER_AGENT = 'dsh-session-purge-updater'
+const RAW_ROOT = 'https://raw.githubusercontent.com'
+const API_ROOT = 'https://api.github.com'
+
+/**
+ * Download one file from a release tag.
+ *
+ * `raw.githubusercontent.com` is unreachable on some networks, so a failed raw
+ * request falls back to the GitHub contents API, which serves the same bytes
+ * from `api.github.com`.
+ */
+async function fetchReleaseBytes(repo, tag, relative, fetchImpl) {
+  try {
+    const response = await fetchImpl(`${RAW_ROOT}/${repo}/${encodePath(tag)}/${encodePath(relative)}`, {
+      headers: { 'user-agent': USER_AGENT },
+    })
+    if (response.ok) return new Uint8Array(await response.arrayBuffer())
+  } catch {
+    // raw host unreachable; retry through the API below.
+  }
+  const response = await fetchImpl(
+    `${API_ROOT}/repos/${repo}/contents/${encodePath(relative)}?ref=${encodePath(tag)}`,
+    { headers: { accept: 'application/vnd.github.raw', 'user-agent': USER_AGENT } },
+  )
   if (!response.ok) throw new Error(`下载更新文件失败：HTTP ${response.status}`)
   return new Uint8Array(await response.arrayBuffer())
+}
+
+async function fetchReleaseJson(repo, tag, relative, fetchImpl, label) {
+  const bytes = await fetchReleaseBytes(repo, tag, relative, fetchImpl)
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes))
+  } catch {
+    throw new Error(`${label} 不是合法 JSON`)
+  }
 }
 
 /**
@@ -161,12 +190,7 @@ export async function checkForUpdate(options) {
  */
 async function detectContentDrift(pluginDir, repo, tag, fetchImpl) {
   try {
-    const response = await fetchImpl(
-      `https://raw.githubusercontent.com/${repo}/${encodePath(tag)}/${MANIFEST_NAME}`,
-      { headers: { 'user-agent': 'dsh-session-purge-updater' } },
-    )
-    if (!response.ok) return false
-    const manifest = await readJson(response, '更新清单')
+    const manifest = await fetchReleaseJson(repo, tag, MANIFEST_NAME, fetchImpl, '更新清单')
     if (manifest?.name !== '@local/session-purge') return false
     if (manifest?.files === null || typeof manifest.files !== 'object') return false
     for (const [rawPath, expected] of Object.entries(manifest.files)) {
@@ -238,12 +262,7 @@ export async function applyUpdate(options) {
   const staging = `${target}.update-${process.pid}-${Date.now()}`
   const backup = `${target}.backup-${Date.now()}`
   try {
-    const manifestResponse = await fetchImpl(
-      `https://raw.githubusercontent.com/${repo}/${encodePath(tag)}/${MANIFEST_NAME}`,
-      { headers: { 'user-agent': 'dsh-session-purge-updater' } },
-    )
-    if (!manifestResponse.ok) throw new Error(`读取更新清单失败：HTTP ${manifestResponse.status}`)
-    const manifest = await readJson(manifestResponse, '更新清单')
+    const manifest = await fetchReleaseJson(repo, tag, MANIFEST_NAME, fetchImpl, '更新清单')
     if (manifest?.name !== '@local/session-purge') throw new Error('更新清单属于其他插件')
     if (stripVersion(manifest.version) !== check.latestVersion) throw new Error('更新清单版本与 Release 不一致')
     if (manifest?.files === null || typeof manifest.files !== 'object') throw new Error('更新清单缺少文件列表')
@@ -255,8 +274,7 @@ export async function applyUpdate(options) {
       if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/i.test(expected)) {
         throw new Error(`更新清单中的哈希非法：${relative}`)
       }
-      const url = `https://raw.githubusercontent.com/${repo}/${encodePath(tag)}/${encodePath(relative)}`
-      const bytes = await getRaw(url, fetchImpl)
+      const bytes = await fetchReleaseBytes(repo, tag, relative, fetchImpl)
       const actual = digest(bytes)
       if (actual !== expected.toLowerCase()) throw new Error(`文件校验失败：${relative}`)
       const destination = join(staging, relative)

@@ -240,3 +240,35 @@ test('applyUpdate falls back to the GitHub contents API when raw is blocked', as
   assert.ok(requested.some((url) => url.includes('/contents/engine.js')))
   await rm(root, { recursive: true, force: true })
 })
+
+test('applyUpdate also refreshes the sibling local-plugins copy', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dshsp-sibling-'))
+  const sibling = join(root, 'local-plugins', '@local', 'session-purge')
+  const active = join(root, 'node_modules', '@local', 'session-purge')
+  for (const dir of [sibling, active]) {
+    await mkdir(join(dir, 'locale'), { recursive: true })
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      name: '@local/session-purge',
+      version: '0.1.2',
+      type: 'module',
+    }, null, 2))
+    await writeFile(join(dir, 'engine.js'), 'export const version = "old"\n')
+  }
+  const files = {
+    'package.json': JSON.stringify({ name: '@local/session-purge', version: '0.1.3', type: 'module' }, null, 2),
+    'engine.js': 'export const version = "new"\n',
+  }
+  const manifest = {
+    name: '@local/session-purge',
+    version: '0.1.3',
+    files: Object.fromEntries(Object.entries(files).map(([path, body]) => [path, sha(body)])),
+  }
+  const { fetch } = makeFetch({ manifest, files })
+  const result = await applyUpdate({ pluginDir: active, currentVersion: '0.1.2', repo: REPO, fetchImpl: fetch })
+  assert.equal(result.ok, true)
+  assert.equal(result.updated, true)
+  assert.equal(await readFile(join(active, 'engine.js'), 'utf8'), 'export const version = "new"\n')
+  assert.equal(await readFile(join(sibling, 'engine.js'), 'utf8'), 'export const version = "new"\n')
+  assert.ok(result.siblingBackupPath)
+  await rm(root, { recursive: true, force: true })
+})

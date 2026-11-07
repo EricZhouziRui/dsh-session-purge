@@ -12,7 +12,7 @@
 
 import { createHash } from 'node:crypto'
 import { cp, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 export const DEFAULT_REPO = 'EricZhouziRui/dsh-session-purge'
 export const MANIFEST_NAME = 'update-manifest.json'
@@ -125,6 +125,24 @@ async function fetchReleaseJson(repo, tag, relative, fetchImpl, label) {
     return JSON.parse(new TextDecoder().decode(bytes))
   } catch {
     throw new Error(`${label} 不是合法 JSON`)
+  }
+}
+
+/** install.mjs keeps a copy in local-plugins and another in node_modules. */
+function siblingCopyPath(target) {
+  const parts = target.split(sep)
+  const index = parts.lastIndexOf('node_modules')
+  if (index === -1) return undefined
+  parts[index] = 'local-plugins'
+  return parts.join(sep)
+}
+
+async function copyStagedFiles(directory, staging, files) {
+  for (const relative of files) {
+    const source = join(staging, relative)
+    const destination = join(directory, relative)
+    await mkdir(dirname(destination), { recursive: true })
+    await cp(source, destination, { force: true })
   }
 }
 
@@ -289,11 +307,23 @@ export async function applyUpdate(options) {
     if (stripVersion(stagedPackage.version) !== check.latestVersion) throw new Error('更新包版本不匹配')
 
     await cp(target, backup, { recursive: true, force: true })
-    for (const relative of files) {
-      const source = join(staging, relative)
-      const destination = join(target, relative)
-      await mkdir(dirname(destination), { recursive: true })
-      await cp(source, destination, { force: true })
+    await copyStagedFiles(target, staging, files)
+    let siblingBackupPath
+    const sibling = siblingCopyPath(target)
+    if (sibling !== undefined) {
+      try {
+        const entry = await lstat(sibling)
+        if (entry.isDirectory() && !entry.isSymbolicLink()) {
+          const siblingPackage = JSON.parse(await readFile(join(sibling, 'package.json'), 'utf8'))
+          if (siblingPackage?.name === '@local/session-purge') {
+            siblingBackupPath = `${sibling}.backup-${Date.now()}`
+            await cp(sibling, siblingBackupPath, { recursive: true, force: true })
+            await copyStagedFiles(sibling, staging, files)
+          }
+        }
+      } catch {
+        // The local-plugins copy is optional; the active node_modules copy is already updated.
+      }
     }
     await rm(staging, { recursive: true, force: true })
     return {
@@ -303,6 +333,7 @@ export async function applyUpdate(options) {
       latestVersion: check.latestVersion,
       releaseUrl: check.releaseUrl,
       backupPath: backup,
+      siblingBackupPath,
       restartRequired: true,
     }
   } catch (error) {

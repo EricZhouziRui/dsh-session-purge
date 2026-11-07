@@ -143,6 +143,14 @@ cp -R "$PROFILE/local-plugins/@local/session-purge" "$PROFILE/node_modules/@loca
 
 ## 6. 更新
 
+复制安装可以在设置页直接更新：
+
+- 顶部会显示「检查更新」；有新版本时点击「更新到 vX」；
+- 更新器只替换 profile 里的安装副本，逐个校验 SHA-256，旧版本保留为 `.backup-<timestamp>`；
+- 完成后仍需完全退出并重新打开 DSH。
+
+手动更新/源码模式：
+
 - 复制模式：`git pull` 后重新运行 `node install.mjs`，重启 DSH。
 - 链接模式：`git pull` 后重启 DSH。
 

@@ -12,6 +12,7 @@ function loadClient() {
     useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
     useEffect: () => {},
     useCallback: (fn) => fn,
+    useRef: (value) => ({ current: value }),
   }
   const sandbox = {
     window: { __ModuleLoader__: { load: (value) => { definition = value } } },

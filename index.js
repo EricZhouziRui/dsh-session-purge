@@ -8,9 +8,12 @@
  * @module session-purge
  */
 
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createEngine, errorMessage, isSessionId } from './engine.js'
+import { DEFAULT_REPO, applyUpdate, checkForUpdate } from './update.js'
 
 export const name = 'session-purge'
 export const inject = ['webServer', 'tools']
@@ -18,6 +21,19 @@ export const inject = ['webServer', 'tools']
 const LIST_ENDPOINT = '/api/session-purge/list'
 const PURGE_ENDPOINT = '/api/session-purge/purge'
 const CLEANUP_ENDPOINT = '/api/session-purge/cleanup'
+const UPDATE_ENDPOINT = '/api/session-purge/update'
+const PLUGIN_DIR = dirname(fileURLToPath(import.meta.url))
+
+function readPluginVersion() {
+  try {
+    const data = JSON.parse(readFileSync(join(PLUGIN_DIR, 'package.json'), 'utf8'))
+    return typeof data?.version === 'string' ? data.version : '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+const PLUGIN_VERSION = readPluginVersion()
 
 /** JSON response helper. */
 function sendJson(response, statusCode, value) {
@@ -537,6 +553,25 @@ export function apply(ctx, _config) {
       for (const entry of result.results ?? []) {
         if (entry.live === true && entry.status === 'deleted') markTombstone(entry.sessionId)
       }
+      sendJson(response, 200, result)
+    } catch (error) {
+      sendJson(response, 500, { ok: false, error: errorMessage(error) })
+    }
+  })
+
+  route(UPDATE_ENDPOINT, async (request, response) => {
+    if (request.method !== 'GET' && request.method !== 'POST') {
+      sendJson(response, 405, { ok: false, error: '只支持 GET 或 POST' })
+      return
+    }
+    if (request.method === 'POST' && !isTrustedRequest(request)) {
+      sendJson(response, 403, { ok: false, error: '拒绝跨站请求' })
+      return
+    }
+    try {
+      const result = request.method === 'GET'
+        ? await checkForUpdate({ currentVersion: PLUGIN_VERSION, repo: DEFAULT_REPO })
+        : await applyUpdate({ pluginDir: PLUGIN_DIR, currentVersion: PLUGIN_VERSION, repo: DEFAULT_REPO })
       sendJson(response, 200, result)
     } catch (error) {
       sendJson(response, 500, { ok: false, error: errorMessage(error) })

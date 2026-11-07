@@ -1,0 +1,19 @@
+{
+  "name": "@local/session-purge",
+  "version": "0.1.2",
+  "files": {
+    "package.json": "2e42e4c5666a08fb03a6ecff0bc347cbb826718d6e213044b92d19c326d2f404",
+    "engine.js": "0bb7cd592b88be3863e1dcd839f11bf5c39f1c1e0a62819e1e8e3046123b3bf6",
+    "index.js": "3d97c74141ca7b930ad006f28f1a034d9fcc0984332b2d34ab65bbea2e7f4ffd",
+    "client.js": "71070d7a21092f9c2fb4334b6764592f5a77a21d546c7c62ab7cd911a5f3e447",
+    "update.js": "90d58ce628b0a7d00368abd58d7527850feea031437e2c51c3429791fd53c82a",
+    "cordis.patch.yml": "730bbf231638ffeca4b866fd46f245fc7571468db2702fbfb1f4bb965314a872",
+    "install.mjs": "024c2aab47f4ca61d752ec1e79eea68ddea89254c8cd632a9e5e9908ef778f48",
+    "README.md": "59a71fe7f490b7856375f75924ee90710af0dc7e5f676560f8334b0f965bc564",
+    "INSTALL.md": "f36b34762e14647f89b409ca43c6eff282fa519bee93ea18a957ed9817714492",
+    "LICENSE": "8ccc29bbf37048f6b680f69813a100643fbb4d79e5cac64761f09a803d2df7a6",
+    "icon.svg": "a2972a6a81af9ebff302c7549e40cc3f2509d7ffc928f142d711ea8de64b873a",
+    "locale/zh.json": "6b91c82ae5307725d437686825f208e53ffbab936f4890944145d1bfa3232507",
+    "locale/en.json": "67edcd479230634e6d1adff93ed0f3123c8057f953c4cb97f13587b459837598"
+  }
+}

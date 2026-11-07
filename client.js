@@ -12,7 +12,7 @@ window.__ModuleLoader__.load({
   id: '@local/session-purge',
   factory(require) {
     const React = require('react')
-    const { createElement: h, useCallback, useEffect, useState } = React
+    const { createElement: h, useCallback, useEffect, useRef, useState } = React
 
     const NS = '@local/session-purge'
     const CLIENT_ID = 'session-purge'
@@ -28,6 +28,20 @@ window.__ModuleLoader__.load({
       cleanupRunning: '正在清理…',
       cleanupDone: '清理完成：残留会话 {sessions} 个，缓存 {caches} 个，记录 {refs} 个，失效索引 {indices} 个，空目录 {dirs} 个，释放 {size}。',
       cleanupNone: '没有可清理的残留。',
+      deleteBlanks: '删除空白会话（{n}）',
+      blankDeleteConfirm: '将彻底删除 {n} 个空白会话（共约 {size}），此操作不可恢复；正在运行的空白会话会先刷新并从 Host 分离，再删除磁盘数据。',
+      blankDeleting: '正在删除空白会话…',
+      blankDeleteDone: '已删除 {n} 个空白会话，释放 {size}。',
+      blankDeleteFailed: '有 {n} 个空白会话删除失败：{error}',
+      blankDeleteNone: '没有可删除的空白会话。',
+      checkUpdate: '检查更新',
+      checkingUpdate: '正在检查…',
+      updateAvailable: '更新到 v{version}',
+      updateLatest: '已是最新版本',
+      updating: '正在更新…',
+      updateConfirm: '将把插件更新到 v{version}。更新会替换当前安装副本，完成后再完全退出并重新打开 DSH 才生效。继续？',
+      updateDone: '已更新到 v{version}，请完全退出并重新打开 DSH。',
+      updateFailed: '更新失败：{error}',
       loading: '正在扫描会话…',
       sessionsTitle: '会话',
       orphansTitle: '磁盘残留（不在会话列表中）',
@@ -95,6 +109,20 @@ window.__ModuleLoader__.load({
       cleanupRunning: 'Cleaning…',
       cleanupDone: 'Cleanup finished: {sessions} orphan sessions, {caches} caches, {refs} records, {indices} index entries, {dirs} empty directories, freeing {size}.',
       cleanupNone: 'There is nothing to clean up.',
+      deleteBlanks: 'Delete blank sessions ({n})',
+      blankDeleteConfirm: 'This permanently deletes {n} blank sessions (about {size}). This cannot be undone; running blank sessions are flushed and detached from the Host before their disk data is removed.',
+      blankDeleting: 'Deleting blank sessions…',
+      blankDeleteDone: 'Deleted {n} blank sessions, freeing {size}.',
+      blankDeleteFailed: '{n} blank sessions failed to delete: {error}',
+      blankDeleteNone: 'There are no blank sessions to delete.',
+      checkUpdate: 'Check for updates',
+      checkingUpdate: 'Checking…',
+      updateAvailable: 'Update to v{version}',
+      updateLatest: 'Up to date',
+      updating: 'Updating…',
+      updateConfirm: 'Update the plugin to v{version}? This replaces the installed copy; restart DSH after it finishes. Continue?',
+      updateDone: 'Updated to v{version}. Quit and reopen DSH to finish.',
+      updateFailed: 'Update failed: {error}',
       loading: 'Scanning sessions…',
       sessionsTitle: 'Sessions',
       orphansTitle: 'Leftovers on disk (not in the session list)',
@@ -312,27 +340,132 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = useState(null)
       const [busyId, setBusyId] = useState(null)
       const [cleaning, setCleaning] = useState(false)
+      const [deletingBlanks, setDeletingBlanks] = useState(false)
+      const [updateChecking, setUpdateChecking] = useState(false)
+      const [updateApplying, setUpdateApplying] = useState(false)
+      const [updateInfo, setUpdateInfo] = useState(null)
+      const [updateNotice, setUpdateNotice] = useState(null)
+      const [updateError, setUpdateError] = useState(null)
       const [confirm, setConfirm] = useState(null)
       const [collapsedGroups, setCollapsedGroups] = useState({})
       const [copiedId, setCopiedId] = useState(null)
       const [expandedSessions, setExpandedSessions] = useState({})
+      const rootRef = useRef(null)
 
-      const load = useCallback(async () => {
-        setLoading(true)
-        setError(null)
+      // The settings shell scrolls in an ancestor element. Capture every
+      // scrollable ancestor plus the window before a destructive action, then
+      // restore after React has committed the refreshed list. Refreshes never
+      // unmount the list (that was what made the page jump to the top).
+      const captureScroll = () => {
+        const positions = []
+        if (typeof window !== 'undefined') positions.push({ element: null, top: window.scrollY })
+        let element = rootRef.current?.parentElement ?? null
+        while (element) {
+          if (element.scrollHeight > element.clientHeight + 1) {
+            positions.push({ element, top: element.scrollTop })
+          }
+          element = element.parentElement
+        }
+        return positions
+      }
+
+      const restoreScroll = (positions) => {
+        if (positions.length === 0) return undefined
+        const apply = () => {
+          for (const position of positions) {
+            if (position.element === null) {
+              if (typeof window !== 'undefined') window.scrollTo(0, position.top)
+            } else if (position.element.isConnected) {
+              position.element.scrollTop = position.top
+            }
+          }
+        }
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            apply()
+            requestAnimationFrame(apply)
+          })
+          return undefined
+        }
+        apply()
+        return undefined
+      }
+
+      const load = useCallback(async (options) => {
+        const showLoading = options?.showLoading === true
+        if (showLoading) {
+          setLoading(true)
+          setError(null)
+        }
         try {
           const next = await callApi('/list', { method: 'GET' })
           setReport(next)
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : String(failure))
         } finally {
-          setLoading(false)
+          if (showLoading) setLoading(false)
         }
       }, [])
 
       useEffect(() => {
-        load()
+        load({ showLoading: true })
       }, [load])
+
+      const checkForUpdate = useCallback(async (silent) => {
+        setUpdateChecking(true)
+        if (silent !== true) {
+          setUpdateError(null)
+          setUpdateNotice(null)
+        }
+        try {
+          const info = await callApi('/update', { method: 'GET' })
+          setUpdateInfo(info)
+          if (silent !== true) {
+            if (info?.updateAvailable === true) setUpdateNotice(null)
+            else if (info?.ok !== false) setUpdateNotice(t('updateLatest'))
+          }
+        } catch (failure) {
+          if (silent !== true) {
+            setUpdateError(t('updateFailed', { error: failure instanceof Error ? failure.message : String(failure) }))
+          }
+        } finally {
+          setUpdateChecking(false)
+        }
+      }, [])
+
+      useEffect(() => {
+        checkForUpdate(true)
+      }, [checkForUpdate])
+
+      const runUpdate = async () => {
+        const version = updateInfo?.latestVersion ?? ''
+        if (updateInfo?.updateAvailable !== true) {
+          await checkForUpdate(false)
+          return
+        }
+        let confirmed = true
+        try {
+          if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+            confirmed = window.confirm(t('updateConfirm', { version }))
+          }
+        } catch {
+          confirmed = true
+        }
+        if (confirmed !== true) return
+        setUpdateApplying(true)
+        setUpdateError(null)
+        setUpdateNotice(null)
+        try {
+          const result = await postJson('/update', {})
+          if (result?.ok === false) throw new Error(result.error ?? 'update failed')
+          setUpdateInfo((current) => ({ ...(current ?? {}), updateAvailable: false, latestVersion: result?.latestVersion ?? version }))
+          setUpdateNotice(t('updateDone', { version: result?.latestVersion ?? version }))
+        } catch (failure) {
+          setUpdateError(t('updateFailed', { error: failure instanceof Error ? failure.message : String(failure) }))
+        } finally {
+          setUpdateApplying(false)
+        }
+      }
 
       useEffect(() => {
         if (notice === null) return undefined
@@ -353,6 +486,7 @@ window.__ModuleLoader__.load({
           + report.cleanup.emptyProjectDirs.length)
 
       const runPurge = async (session) => {
+        const scroll = captureScroll()
         setConfirm(null)
         setBusyId(session.id)
         setError(null)
@@ -376,10 +510,12 @@ window.__ModuleLoader__.load({
           setError(t('deleteFailed', { error: failure instanceof Error ? failure.message : String(failure) }))
         } finally {
           setBusyId(null)
+          restoreScroll(scroll)
         }
       }
 
       const runCleanup = async () => {
+        const scroll = captureScroll()
         setConfirm(null)
         setCleaning(true)
         setError(null)
@@ -403,6 +539,45 @@ window.__ModuleLoader__.load({
           setError(failure instanceof Error ? failure.message : String(failure))
         } finally {
           setCleaning(false)
+          restoreScroll(scroll)
+        }
+      }
+
+      const runBlankPurge = async () => {
+        const targets = sessions.filter((session) => session.blank === true)
+        if (targets.length === 0) {
+          setConfirm(null)
+          setNotice(t('blankDeleteNone'))
+          return
+        }
+        const scroll = captureScroll()
+        setConfirm(null)
+        setDeletingBlanks(true)
+        setError(null)
+        try {
+          const result = await postJson('/purge', {
+            sessionIds: targets.map((session) => session.id),
+            allowLive: targets.some((session) => session.live === true),
+          })
+          const entries = Array.isArray(result.results) ? result.results : []
+          const deleted = entries.filter((entry) => entry.status === 'deleted')
+          const failed = entries.filter((entry) => entry.status === 'failed')
+          const bytes = deleted.reduce((total, entry) => total + (entry.bytes ?? 0), 0)
+          if (deleted.length > 0) {
+            setNotice(t('blankDeleteDone', { n: deleted.length, size: formatBytes(bytes) }))
+          } else if (failed.length === 0) {
+            setNotice(t('blankDeleteNone'))
+          }
+          if (failed.length > 0) {
+            setError(t('blankDeleteFailed', { n: failed.length, error: failed[0].error ?? '' }))
+          }
+          refreshSessionList()
+          await load()
+        } catch (failure) {
+          setError(failure instanceof Error ? failure.message : String(failure))
+        } finally {
+          setDeletingBlanks(false)
+          restoreScroll(scroll)
         }
       }
 
@@ -420,6 +595,8 @@ window.__ModuleLoader__.load({
       }
 
       const sessions = report === null ? [] : report.sessions
+      const blankSessions = sessions.filter((session) => session.blank === true)
+      const blankBytes = blankSessions.reduce((total, session) => total + (session.bytes ?? 0), 0)
       const workspaceList = report === null ? [] : (report.workspaces ?? [])
       const workspaceById = new Map(workspaceList.map((workspace) => [workspace.id, workspace]))
       const grouped = new Map()
@@ -534,14 +711,14 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   key: 'cancel',
                   className: 'dshsp_btn',
-                  disabled: busy,
+                  disabled: busy || deletingBlanks,
                   onClick: () => setConfirm(null),
                 }, t('cancel')),
                 h('button', {
                   type: 'button',
                   key: 'confirm',
                   className: 'dshsp_btn dshsp_btnDangerSolid',
-                  disabled: busy,
+                  disabled: busy || deletingBlanks,
                   onClick: () => runPurge(session),
                 }, busy ? t('deletePending') : t('deleteConfirm')),
               ]
@@ -559,7 +736,7 @@ window.__ModuleLoader__.load({
                   key: 'delete',
                   className: 'dshsp_iconBtn dshsp_iconBtnDanger',
                   title: t('delete'),
-                  disabled: busy,
+                  disabled: busy || deletingBlanks,
                   onClick: () => setConfirm({ kind: 'purge', id: session.id }),
                 }, IconTrash(15)),
               ],
@@ -567,7 +744,7 @@ window.__ModuleLoader__.load({
         )
       }
 
-      return h('div', { className: 'dshsp_root' },
+      return h('div', { className: 'dshsp_root', ref: rootRef },
         h('h2', { className: 'dshsp_title' }, t('title')),
         h('p', { className: 'dshsp_desc' }, t('desc')),
 
@@ -578,21 +755,48 @@ window.__ModuleLoader__.load({
           h('button', {
             type: 'button',
             className: 'dshsp_btn',
-            disabled: loading || cleaning,
-            onClick: load,
+            disabled: loading || cleaning || deletingBlanks,
+            onClick: async () => {
+              const scroll = captureScroll()
+              await load()
+              restoreScroll(scroll)
+            },
           }, loading ? t('loading') : t('refresh')),
           h('button', {
             type: 'button',
             className: `dshsp_btn${cleanupCount > 0 ? ' dshsp_btnDanger' : ''}`,
-            disabled: loading || cleaning || cleanupCount === 0,
+            disabled: loading || cleaning || deletingBlanks || cleanupCount === 0,
             onClick: () => setConfirm({ kind: 'cleanup' }),
           }, cleaning ? t('cleanupRunning') : (cleanupCount > 0 ? t('cleanupCount', { n: cleanupCount }) : t('cleanup'))),
+          h('button', {
+            type: 'button',
+            className: `dshsp_btn${blankSessions.length > 0 ? ' dshsp_btnDanger' : ''}`,
+            disabled: loading || cleaning || deletingBlanks || blankSessions.length === 0,
+            onClick: () => setConfirm({ kind: 'purgeBlanks' }),
+          }, deletingBlanks ? t('blankDeleting') : t('deleteBlanks', { n: blankSessions.length })),
           report !== null ? h('span', { className: 'dshsp_summary' }, summaryText(report)) : null,
         ),
 
         report !== null && report.auto !== undefined && (report.auto.lastAt !== null || report.auto.hooked !== true)
           ? h('div', { className: 'dshsp_auto' }, autoText(report.auto))
           : null,
+
+        h('div', { className: 'dshsp_update' },
+          updateNotice !== null ? h('span', { className: 'dshsp_updateNotice' }, updateNotice) : null,
+          updateError !== null ? h('span', { className: 'dshsp_updateError' }, updateError) : null,
+          h('button', {
+            type: 'button',
+            className: `dshsp_linkBtn${updateInfo?.updateAvailable === true ? ' dshsp_updateAction' : ''}`,
+            disabled: updateChecking || updateApplying,
+            onClick: runUpdate,
+          }, updateApplying
+            ? t('updating')
+            : updateChecking
+              ? t('checkingUpdate')
+              : updateInfo?.updateAvailable === true
+                ? t('updateAvailable', { version: updateInfo.latestVersion ?? '' })
+                : t('checkUpdate')),
+        ),
 
         confirm !== null && confirm.kind === 'cleanup'
           ? h('div', { className: 'dshsp_confirm' },
@@ -602,6 +806,17 @@ window.__ModuleLoader__.load({
             })),
             h('button', { type: 'button', className: 'dshsp_btn', onClick: () => setConfirm(null) }, t('cancel')),
             h('button', { type: 'button', className: 'dshsp_btn dshsp_btnDangerSolid', onClick: runCleanup }, t('cleanup')),
+          )
+          : null,
+
+        confirm !== null && confirm.kind === 'purgeBlanks'
+          ? h('div', { className: 'dshsp_confirm' },
+            h('span', { className: 'dshsp_confirmText' }, t('blankDeleteConfirm', {
+              n: blankSessions.length,
+              size: formatBytes(blankBytes),
+            })),
+            h('button', { type: 'button', className: 'dshsp_btn', onClick: () => setConfirm(null) }, t('cancel')),
+            h('button', { type: 'button', className: 'dshsp_btn dshsp_btnDangerSolid', onClick: runBlankPurge }, t('deleteBlanks', { n: blankSessions.length })),
           )
           : null,
 
@@ -655,6 +870,10 @@ window.__ModuleLoader__.load({
         '.dshsp_chip strong{color:var(--dsw-alias-label-primary);font-weight:600}',
         '.dshsp_toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}',
         '.dshsp_auto{margin:0 0 14px;padding-left:8px;border-left:2px solid var(--dsw-alias-state-success-primary);font-size:12px;color:var(--dsw-alias-label-secondary)}',
+        '.dshsp_update{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px;font-size:12px;color:var(--dsw-alias-label-secondary)}',
+        '.dshsp_updateNotice{color:var(--dsw-alias-state-success-primary)}',
+        '.dshsp_updateError{color:var(--dsw-alias-state-error-primary)}',
+        '.dshsp_updateAction{font-size:13px;font-weight:600}',
         '.dshsp_summary{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
         '.dshsp_hint{margin:0 0 14px;font-size:12px;color:var(--dsw-alias-label-secondary);opacity:.9}',
         '.dshsp_btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer;transition:background 120ms ease,border-color 120ms ease}',

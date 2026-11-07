@@ -17,6 +17,10 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Syntax check
-        run: node --check engine.js && node --check index.js && node --check client.js
+        run: node --check engine.js && node --check index.js && node --check client.js && node --check update.js
+      - name: Build update manifest
+        run: node scripts/build-update-manifest.mjs
+      - name: Verify manifest is current
+        run: git diff --exit-code update-manifest.json
       - name: Test
         run: node --test test/*.test.mjs

@@ -1,6 +1,6 @@
 {
   "name": "@local/session-purge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "自动挂接其他会话管理插件的永久删除并清理磁盘残留 · Permanent session purge with automatic cleanup hook",
   "license": "MIT",
@@ -33,7 +33,9 @@
     "icon.svg",
     "README.md",
     "INSTALL.md",
-    "LICENSE"
+    "LICENSE",
+    "update.js",
+    "update-manifest.json"
   ],
   "icon": "icon.svg",
   "dsh": {
@@ -51,6 +53,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check engine.js && node --check index.js && node --check client.js"
+    "check": "node --check engine.js && node --check index.js && node --check client.js && node --check update.js",
+    "manifest": "node scripts/build-update-manifest.mjs"
   }
 }

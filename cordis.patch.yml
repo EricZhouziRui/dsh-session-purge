@@ -1,0 +1,5 @@
+# Session purge bundle: one host plugin (HTTP API + `session_purge` tool) and
+# one web settings page that share the same deletion engine.
+- insert:
+    - id: session-purge
+      name: '@local/session-purge'

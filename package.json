@@ -1,0 +1,56 @@
+{
+  "name": "@local/session-purge",
+  "version": "0.1.1",
+  "private": true,
+  "description": "自动挂接其他会话管理插件的永久删除并清理磁盘残留 · Permanent session purge with automatic cleanup hook",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EricZhouziRui/dsh-session-purge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EricZhouziRui/dsh-session-purge/issues"
+  },
+  "homepage": "https://github.com/EricZhouziRui/dsh-session-purge",
+  "engines": {
+    "node": ">=18"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./engine": "./engine.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "engine.js",
+    "client.js",
+    "cordis.patch.yml",
+    "install.mjs",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "INSTALL.md",
+    "LICENSE"
+  ],
+  "icon": "icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check engine.js && node --check index.js && node --check client.js"
+  }
+}
